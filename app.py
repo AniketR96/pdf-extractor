@@ -9,46 +9,57 @@ def extract_mahavitaran(pdf_file, filename):
             "Bill Amount Rs:": "", "If Paid upto this Date:": "", "IF PAID UPTO": "", 
             "Current Reading": "", "Prevoius Reading": "", "Current Reading Date:": "", "Previous Reading Date:": ""}
     
-    outlet_match = re.search(r'(IMH[A-Za-z0-9_]+)', filename)
+    outlet_match = re.search(r'(IMH[A-Za-z0-9_]+)', filename, re.IGNORECASE)
     if outlet_match: data["Outlet"] = outlet_match.group(1)
 
     with pdfplumber.open(pdf_file) as pdf:
-        text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+        raw_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
         
-        c_match = re.search(r'(?:ग्राहक क्रमांक|Consumer No)[\s\|:]*(\d+)', text)
+        # SQUASH THE TEXT: Remove all spaces, newlines, and tabs. 
+        # This prevents hidden PDF layout breaks from ruining the labels.
+        flat_text = re.sub(r'\s+', '', raw_text)
+        
+        # 1. Consumer No (Finds the label, then exactly 12 digits)
+        c_match = re.search(r'(?:ग्राहकक्रमांक|ConsumerNo).*?(\d{12})', flat_text, re.IGNORECASE)
         if c_match: data["Consumer No:"] = "'" + c_match.group(1)
         
-        b_match = re.search(r'BILL NO\.\(GGN\)[\s\|:]*(\d+)', text)
+        # 2. BILL NO (GGN) (Finds the label, then exactly 15 digits)
+        b_match = re.search(r'BILLNO\.\(GGN\).*?(\d{15})', flat_text, re.IGNORECASE)
         if b_match: data["BILL NO.(GGN):"] = "'" + b_match.group(1)
         
-        bd_match = re.search(r'(?:देयक दिनांक|Bill Date)[\s\|:]*([\d]{2}-[\d]{2}-[\d]{4})', text)
+        # 3. Bill Date
+        bd_match = re.search(r'(?:देयकदिनांक|BillDate)[:\|-]*(\d{2}-\d{2}-\d{4})', flat_text, re.IGNORECASE)
         if bd_match: data["Bill Date:"] = bd_match.group(1)
         
-        dd_match = re.search(r'(?:देय दिनांक|Due Date)[\s\|:]*([\d]{2}-[\d]{2}-[\d]{4})', text)
+        # 4. Due Date
+        dd_match = re.search(r'(?:देयदिनांक|DueDate)[:\|-]*(\d{2}-\d{2}-\d{4})', flat_text, re.IGNORECASE)
         if dd_match: data["Due Date:"] = dd_match.group(1)
         
-        amt_match = re.search(r'(?:देयक रक्कम रु|Bill Amount)[\s\|:]*([\d\.]+)', text)
+        # 5. Bill Amount
+        amt_match = re.search(r'(?:देयकरक्कमरु|BillAmount).*?(\d+\.\d{2})', flat_text, re.IGNORECASE)
         if amt_match: data["Bill Amount Rs:"] = amt_match.group(1)
         
-        paid_upto_match = re.search(r'(?:या तारखे पर्यंत भरल्यास|If Paid upto)[^\d]*([\d]{2}-[\d]{2}-[\d]{4})[^\d]*([\d\.]+)', text, re.IGNORECASE)
+        # 6 & 7. If Paid Upto Date & Amount
+        paid_upto_match = re.search(r'(?:यातारखेपर्यंतभरल्यास|IfPaidupto).*?(\d{2}-\d{2}-\d{4}).*?(?:Rs\.?|रु\.?)?(\d+\.\d{2})', flat_text, re.IGNORECASE)
         if paid_upto_match:
             data["If Paid upto this Date:"] = paid_upto_match.group(1)
             data["IF PAID UPTO"] = paid_upto_match.group(2)
             
-        cr_match = re.search(r'(?:चालु रिडिंग|Current Reading)(?!\s*दिनांक|\s*Date)[\s\|:]*(\d+)', text)
-        if cr_match: data["Current Reading"] = cr_match.group(1)
-            
-        pr_match = re.search(r'(?:मागील रिडिंग|Previous Reading)(?!\s*दिनांक|\s*Date)[\s\|:]*(\d+)', text)
-        if pr_match: data["Prevoius Reading"] = pr_match.group(1)
-        
-        crd_match = re.search(r'(?:चालु रिडिंग दिनांक|Current Reading Date).*?([\d]{2}-[\d]{2}-[\d]{4})', text, re.DOTALL)
+        # 8 & 9. Reading Dates
+        crd_match = re.search(r'(?:चालुरिडिंगदिनांक|CurrentReadingDate).*?(\d{2}-\d{2}-\d{4})', flat_text, re.IGNORECASE)
         if crd_match: data["Current Reading Date:"] = crd_match.group(1)
             
-        prd_match = re.search(r'(?:मागील रिडिंग दिनांक|Previous Reading Date).*?([\d]{2}-[\d]{2}-[\d]{4})', text, re.DOTALL)
+        prd_match = re.search(r'(?:मागीलरिडिंगदिनांक|PreviousReadingDate).*?(\d{2}-\d{2}-\d{4})', flat_text, re.IGNORECASE)
         if prd_match: data["Previous Reading Date:"] = prd_match.group(1)
 
-    return data
+        # 10 & 11. Readings (Finds the word Reading, ensures it isn't Reading Date, then grabs the number)
+        cr_match = re.search(r'(?:चालुरिडिंग|CurrentReading)(?!दिनांक|Date).*?(\d{3,6})(?!\d|-)', flat_text, re.IGNORECASE)
+        if cr_match: data["Current Reading"] = cr_match.group(1)
+            
+        pr_match = re.search(r'(?:मागीलरिडिंग|PreviousReading)(?!दिनांक|Date).*?(\d{3,6})(?!\d|-)', flat_text, re.IGNORECASE)
+        if pr_match: data["Prevoius Reading"] = pr_match.group(1)
 
+    return data
 def extract_general_invoice(pdf_file, filename, pattern_dict, prefix_fields=[]):
     data = {key: "" for key in pattern_dict.keys()}
     
