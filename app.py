@@ -9,7 +9,7 @@ def extract_mahavitaran(pdf_file, filename):
             "Bill Amount Rs:": "", "If Paid upto this Date:": "", "IF PAID UPTO": "", 
             "Current Reading": "", "Prevoius Reading": "", "Current Reading Date:": "", "Previous Reading Date:": ""}
     
-    outlet_match = re.search(r'(IMH[A-Za-z0-9]+)', filename)
+    outlet_match = re.search(r'(IMH[A-Za-z0-9_]+)', filename)
     if outlet_match: data["Outlet"] = outlet_match.group(1)
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -53,7 +53,7 @@ def extract_general_invoice(pdf_file, filename, pattern_dict, prefix_fields=[]):
     data = {key: "" for key in pattern_dict.keys()}
     
     if "Booking Id" in data:
-        nf_match = re.search(r'(NF\d+)', filename)
+        nf_match = re.search(r'(NF[A-Za-z0-9_]+)', filename)
         if nf_match: data["Booking Id"] = nf_match.group(1)
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -62,14 +62,13 @@ def extract_general_invoice(pdf_file, filename, pattern_dict, prefix_fields=[]):
         for key, pattern in pattern_dict.items():
             if key == "Booking Id": continue
             
-            # Using DOTALL ensures we can search across newlines natively
             match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
             if match:
-                val = match.group(1).strip()
+                # Some regex groups might catch trailing newlines, so we split and take the first line
+                val = match.group(1).strip().split('\n')[0].strip()
                 data[key] = f"'{val}" if key in prefix_fields else val
     return data
 
-# Regex Patterns tuned strictly to the provided document samples
 TAB_CONFIGS = {
     "Mahavitaran": {
         "headers": ["Outlet", "Consumer No:", "BILL NO.(GGN):", "Bill Date:", "Due Date:", "Bill Amount Rs:", "If Paid upto this Date:", "IF PAID UPTO", "Current Reading", "Prevoius Reading", "Current Reading Date:", "Previous Reading Date:"],
@@ -97,7 +96,7 @@ TAB_CONFIGS = {
             "Invoice Date :": r'Invoice Date:\s*([\d/]+)', 
             "PNR :": r'PNR:\s*([A-Za-z0-9]+)', 
             "Reference Document Number :": r'Reference Document Number:\s*([A-Za-z0-9]+)', 
-            "Total Value": r'Total\s*\|[\s\|]*([\d\,\.]+)'
+            "Total Value": r'^Total.*?([\d\,\.]+)\s*$'
         }, prefix_fields=["Invoice Number :", "Reference Document Number :"])
     },
     "Indigo Inv": {
@@ -105,9 +104,9 @@ TAB_CONFIGS = {
         "processor": lambda p, f: extract_general_invoice(p, f, {
             "Booking Id": "", 
             "Number :": r'Number:\s*([A-Za-z0-9]+)', 
-            "Date :": r'Date:\s*([\d-A-Za-z]+)', 
+            "Date :": r'Date:\s*([A-Za-z0-9\-]+)', 
             "PNR :": r'PNR:\s*([A-Za-z0-9]+)', 
-            "Total(Incl Taxes)": r'Grand Total[\s\|]+(?:[\d\,\.]+\s*\|\s*)*([\d\,\.]+)'
+            "Total(Incl Taxes)": r'Grand Total.*?([\d\,\.]+)\s*$'
         })
     },
     "SpiceJet Inv": {
@@ -115,9 +114,9 @@ TAB_CONFIGS = {
         "processor": lambda p, f: extract_general_invoice(p, f, {
             "Booking Id": "", 
             "Invoice No:": r'Invoice No:\s*([A-Za-z0-9/]+)', 
-            "Invoice Date:": r'Invoice Date:\s*([\d-A-Za-z\s]+(?:AM|PM)?)', 
+            "Invoice Date:": r'Invoice Date:\s*([\d\-A-Za-z\s:]+(?:AM|PM)?)', 
             "PNR:": r'PNR:\s*(?:\|\s*)?([A-Za-z0-9]+)', 
-            "Total Invoice Value inclusive of Taxes (in figures)": r'Total Invoice Value inclusive of Taxes \(in figures\)[\sA-Za-z\(\)\n\r]*?([\d\.]+)'
+            "Total Invoice Value inclusive of Taxes (in figures)": r'\(Y/N\)[\s\|]*([\d\.]+)'
         })
     },
     "Air India Express Inv": {
@@ -125,9 +124,9 @@ TAB_CONFIGS = {
         "processor": lambda p, f: extract_general_invoice(p, f, {
             "Booking Id": "", 
             "Invoice Number :": r'Invoice Number\s*:\s*([A-Za-z0-9]+)', 
-            "Invoice Date :": r'Invoice Date\s*:\s*([\d-]+)', 
+            "Invoice Date :": r'Invoice Date\s*:\s*([\d\-]+)', 
             "PNR No :": r'PNR No\s*:\s*([A-Za-z0-9]+)', 
-            "Total Invoice Value": r'Grand Total[\s\|\d\,\.]+?([\d\,\.]+)[\n\r]*'
+            "Total Invoice Value": r'Grand Total.*?([\d\,\.]+)\s*$'
         })
     },
     "SNV Aviation": {
@@ -135,9 +134,9 @@ TAB_CONFIGS = {
         "processor": lambda p, f: extract_general_invoice(p, f, {
             "Booking Id": "", 
             "Invoice Number:": r'Invoice Number:\s*([A-Za-z0-9]+)', 
-            "Invoice Date:": r'Invoice Date:\s*([\d-A-Za-z]+)', 
+            "Invoice Date:": r'Invoice Date:\s*([A-Za-z0-9\-]+)', 
             "PNR:": r'PNR:\s*([A-Za-z0-9]+)', 
-            "Total Amount (incl.tax)": r'Grand Total[\s\|]+(?:[\d\,\.]+\s*\|\s*)*([\d\,\.]+)'
+            "Total Amount (incl.tax)": r'Grand Total.*?([\d\,\.]+)\s*$'
         })
     }
 }
